@@ -1,19 +1,124 @@
 "use client";
 
-import { Upload, ArrowRight, Clock, Settings, Zap, Cog } from "lucide-react";
+import { Upload, ArrowRight, Clock, Settings, Zap, Cog, X, CheckCircle2, Trash2, Loader2 } from "lucide-react";
 import Image from "next/image";
+import { useState, useRef } from "react";
+import { PDFDocument } from "pdf-lib";
+import { ExtractingView } from "@/components/ExtractingView";
+import { MappingView } from "@/components/MappingView";
 
 /* Each icon orbits at the same radius but starts at a different angle */
 const orbitIcons = [
-  { Icon: Clock, delay: "0s", startAngle: 315 },      // top-right
-  { Icon: Cog, delay: "-3s", startAngle: 200 },        // left
-  { Icon: Zap, delay: "-6s", startAngle: 30 },         // right-bottom area
-  { Icon: Settings, delay: "-9s", startAngle: 140 },   // bottom-left
+  { Icon: Clock, delay: "0s", startAngle: 315 },
+  { Icon: Cog, delay: "-3s", startAngle: 200 },
+  { Icon: Zap, delay: "-6s", startAngle: 30 },
+  { Icon: Settings, delay: "-9s", startAngle: 140 },
 ];
 
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + "KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + "MB";
+};
+
 export default function UploadPage() {
+  const [qpFile, setQpFile] = useState<File | null>(null);
+  const [asFile, setAsFile] = useState<File | null>(null);
+  const [qpPages, setQpPages] = useState<number | null>(null);
+  const [asPages, setAsPages] = useState<number | null>(null);
+  const [isQpLoading, setIsQpLoading] = useState(false);
+  const [isAsLoading, setIsAsLoading] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [viewState, setViewState] = useState<"upload" | "extracting" | "mapping">("upload");
+
+  const qpInputRef = useRef<HTMLInputElement>(null);
+  const asInputRef = useRef<HTMLInputElement>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const extractPageCount = async (file: File): Promise<number | null> => {
+    if (file.type !== "application/pdf") return null;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      return pdfDoc.getPageCount();
+    } catch (error) {
+      console.error("Failed to parse PDF", error);
+      return null;
+    }
+  };
+
+  const handleQpChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert("File must be less than 10MB");
+        return;
+      }
+      setQpFile(file);
+      setIsQpLoading(true);
+      const pages = await extractPageCount(file);
+      setQpPages(pages);
+      setIsQpLoading(false);
+      showToast("Question Paper uploaded successfully");
+    }
+  };
+
+  const handleAsChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert("File must be less than 10MB");
+        return;
+      }
+      setAsFile(file);
+      setIsAsLoading(true);
+      const pages = await extractPageCount(file);
+      setAsPages(pages);
+      setIsAsLoading(false);
+      showToast("Answer Sheet uploaded successfully");
+    }
+  };
+
+  const handleRemoveQp = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setQpFile(null);
+    setQpPages(null);
+    if (qpInputRef.current) qpInputRef.current.value = "";
+    showToast("Question Paper removed successfully");
+  };
+
+  const handleRemoveAs = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setAsFile(null);
+    setAsPages(null);
+    if (asInputRef.current) asInputRef.current.value = "";
+    showToast("Answer Sheet removed successfully");
+  };
+
+  const isBothUploaded = qpFile !== null && asFile !== null;
+
+  const handleStartMapping = () => {
+    setViewState("extracting");
+    setTimeout(() => {
+      setViewState("mapping");
+    }, 3500); // Simulate extraction delay
+  };
+
+  if (viewState === "extracting") {
+    return <ExtractingView />;
+  }
+
+  if (viewState === "mapping") {
+    return <MappingView />;
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center h-full py-4 px-4">
+    <div className="flex flex-col items-center justify-center h-full py-4 px-4 relative">
       {/* ── Title ── */}
       <div className="flex flex-col items-center gap-1 mb-2">
         <div className="flex items-center gap-3">
@@ -32,12 +137,12 @@ export default function UploadPage() {
       {/* ── Avatar graphic with orbiting icons ── */}
       <div className="relative w-[200px] h-[200px] flex items-center justify-center mb-3">
         {/* Outer ring */}
-        <div className="absolute w-[200px] h-[200px] rounded-full bg-[rgba(255,86,35,0.08)]" />
+        <div className="absolute w-[200px] h-[200px] rounded-full bg-[rgba(255,86,35,0.08)] pointer-events-none" />
         {/* Inner ring */}
-        <div className="absolute w-[155px] h-[155px] rounded-full bg-[rgba(255,86,35,0.18)]" />
+        <div className="absolute w-[155px] h-[155px] rounded-full bg-[rgba(255,86,35,0.18)] pointer-events-none" />
         {/* White circle + avatar */}
-        <div className="absolute w-[110px] h-[110px] rounded-full bg-white z-10 shadow-sm" />
-        <div className="relative w-[110px] h-[110px] rounded-full overflow-hidden z-10">
+        <div className="absolute w-[110px] h-[110px] rounded-full bg-white z-10 shadow-sm pointer-events-none" />
+        <div className="relative w-[110px] h-[110px] rounded-full overflow-hidden z-10 pointer-events-none">
           <Image
             src="/image.png"
             alt="Teacher avatar"
@@ -47,11 +152,11 @@ export default function UploadPage() {
           />
         </div>
 
-        {/* Orbiting icons — each rotates along a circular path */}
+        {/* Orbiting icons */}
         {orbitIcons.map(({ Icon, delay, startAngle }, i) => (
           <div
             key={i}
-            className="absolute inset-0 z-20"
+            className="absolute inset-0 z-20 pointer-events-none"
             style={{
               animation: `orbit 12s linear infinite`,
               animationDelay: delay,
@@ -71,42 +176,125 @@ export default function UploadPage() {
         ))}
       </div>
 
+      {/* ── Hidden File Inputs ── */}
+      <input 
+        type="file" 
+        accept=".pdf,image/*" 
+        className="hidden" 
+        onChange={handleQpChange} 
+        ref={qpInputRef}
+      />
+      <input 
+        type="file" 
+        accept=".pdf,image/*" 
+        className="hidden" 
+        onChange={handleAsChange} 
+        ref={asInputRef}
+      />
+
       {/* ── Upload dropzones ── */}
       <div className="bg-[rgba(255,255,255,0.5)] rounded-3xl p-3 max-w-[789px] w-full mb-3">
         <div className="flex gap-4">
-          {/* Question Paper */}
-          <label className="flex-1 bg-white border-[1.5px] border-dashed border-[#CECECE] rounded-[20px] h-[181px] flex flex-col items-center justify-center cursor-pointer hover:border-[#FF5623]/40 hover:bg-[#FFF8F6] transition-all group">
-            <div className="w-10 h-10 rounded-lg border-[1.5px] border-[#CECECE] flex items-center justify-center mb-3 group-hover:border-[#FF5623]/40 transition-colors">
-              <Upload size={18} className="text-[#2B2B2B]" strokeWidth={2} />
+          
+          {/* Question Paper Dropzone */}
+          {!qpFile ? (
+            <div 
+              onClick={() => qpInputRef.current?.click()}
+              className="flex-1 bg-white border-[1.5px] border-dashed border-[#CECECE] rounded-[20px] h-[181px] flex flex-col items-center justify-center relative cursor-pointer hover:border-[#FF5623]/40 hover:bg-[#FFF8F6] transition-all group"
+            >
+              <div className="w-10 h-10 rounded-lg border-[1.5px] border-[#CECECE] flex items-center justify-center mb-3 group-hover:border-[#FF5623]/40 transition-colors">
+                <Upload size={18} className="text-[#2B2B2B]" strokeWidth={2} />
+              </div>
+              <p className="text-[16px] font-bold leading-[22px] tracking-[-0.04em] text-[#2B2B2B]">
+                Upload <span className="text-[#FF5623]">Question Paper</span>
+              </p>
+              <p className="text-[14px] font-normal leading-[20px] tracking-[-0.04em] text-[rgba(94,94,94,0.8)] mt-1">
+                Max 10MB
+              </p>
             </div>
-            <p className="text-[16px] font-bold leading-[22px] tracking-[-0.04em] text-[#2B2B2B]">
-              Upload <span className="text-[#FF5623]">Question Paper</span>
-            </p>
-            <p className="text-[14px] font-normal leading-[20px] tracking-[-0.04em] text-[rgba(94,94,94,0.8)] mt-1">
-              Max 10MB
-            </p>
-          </label>
+          ) : (
+            <div className="flex-1 bg-white rounded-[20px] h-[181px] flex items-center justify-center relative shadow-[0_4px_11.4px_rgba(0,0,0,0.05)] border-[1.5px] border-transparent">
+              <div className="bg-[#F6F6F6] rounded-2xl flex items-center px-5 py-4 gap-4 w-[90%]">
+                <Image src="/pdf.png" alt="PDF" width={35} height={40} className="shrink-0" />
+                <div className="flex flex-col text-left min-w-0">
+                  <span className="font-bold text-[#2B2B2B] text-[18px] tracking-[-0.02em] truncate block w-full mb-0.5">{qpFile.name}</span>
+                  <div className="flex items-center gap-2 text-[#5E5E5E]/80 text-[15px] font-medium">
+                    <span>{formatFileSize(qpFile.size)}</span>
+                    <div className="w-[4px] h-[4px] rounded-full bg-[#5E5E5E]/60"></div>
+                    {isQpLoading ? (
+                      <span className="flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Reading PDF...</span>
+                    ) : (
+                      <span>{qpPages ? `${qpPages} Page${qpPages > 1 ? 's' : ''}` : 'Document'}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={handleRemoveQp}
+                className="absolute top-4 right-4 w-7 h-7 bg-[#4D4D4D] text-white rounded-full flex items-center justify-center shadow-md hover:bg-[#333] transition-colors border-2 border-white z-50 cursor-pointer pointer-events-auto"
+              >
+                <X size={14} strokeWidth={3} />
+              </button>
+            </div>
+          )}
 
-          {/* Answer Sheet */}
-          <label className="flex-1 bg-white border-[1.5px] border-dashed border-[#CECECE] rounded-[20px] h-[181px] flex flex-col items-center justify-center cursor-pointer hover:border-[#FF5623]/40 hover:bg-[#FFF8F6] transition-all group">
-            <div className="w-10 h-10 rounded-lg border-[1.5px] border-[#CECECE] flex items-center justify-center mb-3 group-hover:border-[#FF5623]/40 transition-colors">
-              <Upload size={18} className="text-[#2B2B2B]" strokeWidth={2} />
+          {/* Answer Sheet Dropzone */}
+          {!asFile ? (
+            <div 
+              onClick={() => asInputRef.current?.click()}
+              className="flex-1 bg-white border-[1.5px] border-dashed border-[#CECECE] rounded-[20px] h-[181px] flex flex-col items-center justify-center relative cursor-pointer hover:border-[#FF5623]/40 hover:bg-[#FFF8F6] transition-all group"
+            >
+              <div className="w-10 h-10 rounded-lg border-[1.5px] border-[#CECECE] flex items-center justify-center mb-3 group-hover:border-[#FF5623]/40 transition-colors">
+                <Upload size={18} className="text-[#2B2B2B]" strokeWidth={2} />
+              </div>
+              <p className="text-[16px] font-bold leading-[22px] tracking-[-0.04em] text-[#2B2B2B]">
+                Upload <span className="text-[#FF5623]">Answer Sheet</span>
+              </p>
+              <p className="text-[14px] font-normal leading-[20px] tracking-[-0.04em] text-[rgba(94,94,94,0.8)] mt-1">
+                Max 10MB
+              </p>
             </div>
-            <p className="text-[16px] font-bold leading-[22px] tracking-[-0.04em] text-[#2B2B2B]">
-              Upload <span className="text-[#FF5623]">Answer Sheet</span>
-            </p>
-            <p className="text-[14px] font-normal leading-[20px] tracking-[-0.04em] text-[rgba(94,94,94,0.8)] mt-1">
-              Max 10MB
-            </p>
-          </label>
+          ) : (
+            <div className="flex-1 bg-white rounded-[20px] h-[181px] flex items-center justify-center relative shadow-[0_4px_11.4px_rgba(0,0,0,0.05)] border-[1.5px] border-transparent">
+              <div className="bg-[#F6F6F6] rounded-2xl flex items-center px-5 py-4 gap-4 w-[90%]">
+                <Image src="/pdf.png" alt="PDF" width={35} height={40} className="shrink-0" />
+                <div className="flex flex-col text-left min-w-0">
+                  <span className="font-bold text-[#2B2B2B] text-[18px] tracking-[-0.02em] truncate block w-full mb-0.5">{asFile.name}</span>
+                  <div className="flex items-center gap-2 text-[#5E5E5E]/80 text-[15px] font-medium">
+                    <span>{formatFileSize(asFile.size)}</span>
+                    <div className="w-[4px] h-[4px] rounded-full bg-[#5E5E5E]/60"></div>
+                    {isAsLoading ? (
+                      <span className="flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Reading PDF...</span>
+                    ) : (
+                      <span>{asPages ? `${asPages} Page${asPages > 1 ? 's' : ''}` : 'Document'}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={handleRemoveAs}
+                className="absolute top-4 right-4 w-7 h-7 bg-[#4D4D4D] text-white rounded-full flex items-center justify-center shadow-md hover:bg-[#333] transition-colors border-2 border-white z-50 cursor-pointer pointer-events-auto"
+              >
+                <X size={14} strokeWidth={3} />
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
 
       {/* ── CTA ── */}
       <div className="flex flex-col items-center gap-2">
         <button
-          disabled
-          className="flex items-center gap-2 bg-[#303030] text-white pl-6 pr-5 py-3 rounded-full border-2 border-[rgba(255,255,255,0.15)] shadow-[0_4px_5px_rgba(0,0,0,0.12)] opacity-50 cursor-not-allowed"
+          onClick={handleStartMapping}
+          disabled={!isBothUploaded}
+          className={`flex items-center gap-2 pl-6 pr-5 py-3 rounded-full border-2 transition-all ${
+            isBothUploaded
+              ? "bg-[#303030] text-white border-[rgba(255,255,255,0.15)] shadow-[0_4px_5px_rgba(0,0,0,0.12)] hover:bg-[#222]"
+              : "bg-[#303030]/50 text-white/50 border-white/10 opacity-50 cursor-not-allowed"
+          }`}
         >
           <span className="text-[14px] font-medium leading-[20px] tracking-[-0.04em]">
             Start Mapping
@@ -117,6 +305,18 @@ export default function UploadPage() {
           Once both files are uploaded, you&apos;ll able to map answers with questions
         </p>
       </div>
+
+      {/* ── Toast Notification ── */}
+      {toastMessage && (
+        <div className="absolute bottom-10 right-10 bg-[#303030] text-white px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 z-50">
+          {toastMessage.includes("removed") ? (
+            <Trash2 size={18} className="text-red-400" />
+          ) : (
+            <CheckCircle2 size={18} className="text-green-400" />
+          )}
+          <span className="font-medium text-sm">{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }
