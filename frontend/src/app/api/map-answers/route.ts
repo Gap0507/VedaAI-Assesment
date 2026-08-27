@@ -1,71 +1,141 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+interface Question {
+  id: string;
+  number: string;
+  text: string;
+  marks: number;
+  order: number;
+}
+
+interface Answer {
+  id: string;
+  text: string;
+  questionReference: string | null;
+  page: number;
+  boundingBox: { x: number; y: number; width: number; height: number };
+}
+
+interface Mapping {
+  questionId: string;
+  answerId: string;
+  confidence: number;
+  reason: string;
+  status: "mapped" | "review" | "unmatched";
+}
+
+/**
+ * Normalize a question reference string for fuzzy matching.
+ * Strips common prefixes like "Q", "Ans", "Answer", punctuation, and whitespace.
+ * Examples: "Q11(a)" → "11a", "Ans 3" → "3", "1)" → "1"
+ */
+function normalizeRef(ref: string): string {
+  return ref
+    .toLowerCase()
+    .replace(/^(ans(wer)?|q(uestion)?)\s*/i, "")  // Strip prefixes
+    .replace(/[^a-z0-9]/g, "");                     // Keep only alphanumeric
+}
+
+/**
+ * Local TypeScript-based mapping engine.
+ * Maps answers to questions WITHOUT any AI call.
+ *
+ * Strategy:
+ * 1. Exact match on questionReference → question.number
+ * 2. Fuzzy normalized match
+ * 3. Sequential fallback for unmatched answers
+ */
+function mapAnswersToQuestions(questions: Question[], answers: Answer[]): Mapping[] {
+  const mappings: Mapping[] = [];
+  const mappedQuestionIds = new Set<string>();
+  const mappedAnswerIds = new Set<string>();
+
+  // Build a lookup from normalized question number → question
+  const normalizedQMap = new Map<string, Question>();
+  for (const q of questions) {
+    normalizedQMap.set(normalizeRef(q.number), q);
+  }
+
+  // --- Pass 1: Exact / fuzzy reference match ---
+  for (const answer of answers) {
+    if (!answer.questionReference) continue;
+
+    const normalizedRef = normalizeRef(answer.questionReference);
+    const matchedQuestion = normalizedQMap.get(normalizedRef);
+
+    if (matchedQuestion && !mappedQuestionIds.has(matchedQuestion.id)) {
+      mappings.push({
+        questionId: matchedQuestion.id,
+        answerId: answer.id,
+        confidence: 0.95,
+        reason: `Matched by explicit reference "${answer.questionReference}" → Q${matchedQuestion.number}`,
+        status: "mapped",
+      });
+      mappedQuestionIds.add(matchedQuestion.id);
+      mappedAnswerIds.add(answer.id);
+    }
+  }
+
+  // --- Pass 2: Sequential fallback ---
+  // Sort remaining answers by page, then by vertical position (y coordinate)
+  const unmappedAnswers = answers
+    .filter((a) => !mappedAnswerIds.has(a.id))
+    .sort((a, b) => {
+      if (a.page !== b.page) return a.page - b.page;
+      return a.boundingBox.y - b.boundingBox.y;
+    });
+
+  // Sort remaining questions by order
+  const unmappedQuestions = questions
+    .filter((q) => !mappedQuestionIds.has(q.id))
+    .sort((a, b) => a.order - b.order);
+
+  // Map sequentially
+  for (let i = 0; i < unmappedAnswers.length; i++) {
+    const answer = unmappedAnswers[i];
+    if (i < unmappedQuestions.length) {
+      const question = unmappedQuestions[i];
+      mappings.push({
+        questionId: question.id,
+        answerId: answer.id,
+        confidence: 0.6,
+        reason: `Mapped by sequential order (answer ${i + 1} → question ${question.number})`,
+        status: "review",
+      });
+      mappedQuestionIds.add(question.id);
+      mappedAnswerIds.add(answer.id);
+    } else {
+      // More answers than questions — mark as unmatched
+      mappings.push({
+        questionId: questions[0]?.id || "unknown",
+        answerId: answer.id,
+        confidence: 0.2,
+        reason: "No matching question found — excess answer block",
+        status: "unmatched",
+      });
+    }
+  }
+
+  return mappings;
+}
 
 export async function POST(req: Request) {
   try {
     const { questions, answers } = await req.json();
 
     if (!questions || !answers) {
-      return NextResponse.json({ error: "Questions and answers arrays are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Questions and answers arrays are required" },
+        { status: 400 }
+      );
     }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-3.6-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            mappings: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  questionId: { type: SchemaType.STRING },
-                  answerId: { type: SchemaType.STRING },
-                  confidence: { type: SchemaType.NUMBER, description: "Confidence score between 0.0 and 1.0" },
-                  reason: { type: SchemaType.STRING, description: "Brief reason for this mapping" },
-                  status: { type: SchemaType.STRING, description: "Either 'mapped' (confidence >= 0.8), 'review' (0.5 to 0.79), or 'unmatched' (<0.5)" }
-                },
-                required: ["questionId", "answerId", "confidence", "reason", "status"]
-              }
-            }
-          },
-          required: ["mappings"]
-        }
-      }
-    });
+    // Pure local logic — no AI call needed
+    const mappings = mapAnswersToQuestions(questions, answers);
 
-    const prompt = `
-      You are an expert mapping engine. 
-      I will provide you with a JSON list of extracted Questions from an exam, and a JSON list of handwritten Answers extracted from a student's paper.
-      
-      Your task is to map each Answer to the correct Question.
-      
-      Consider:
-      1. Explicit References: If the answer has a 'questionReference' (e.g., "Q7"), strongly associate it with that question.
-      2. Semantic Similarity: If there is no explicit reference, map the answer text to the question text based on semantic meaning.
-      3. Context: Students often answer sequentially, though not always.
-      
-      Return a mapping object for every Answer provided. 
-      If an answer clearly does not match any question, map it to the closest match but give a low confidence score (< 0.5) and status "unmatched".
-      
-      QUESTIONS:
-      ${JSON.stringify(questions, null, 2)}
-      
-      ANSWERS:
-      ${JSON.stringify(answers, null, 2)}
-    `;
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const data = JSON.parse(responseText);
-
-    return NextResponse.json(data);
+    return NextResponse.json({ mappings });
   } catch (error: any) {
     console.error("Error mapping answers:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

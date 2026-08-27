@@ -22,14 +22,8 @@ const formatFileSize = (bytes: number) => {
   return (bytes / (1024 * 1024)).toFixed(1) + "MB";
 };
 
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-  });
-};
+
+
 
 export default function UploadPage() {
   const [qpFile, setQpFile] = useState<File | null>(null);
@@ -127,45 +121,53 @@ export default function UploadPage() {
     setViewState("extracting");
     
     try {
-      // 1. Extract Questions
+      // 1. Render Question Paper to images (Qwen-VL needs images, not raw PDF)
+      setExtractStatus("Rendering Question Paper pages...");
+      const qpImages = await renderPdfToImages(qpFile);
+
+      // 2. Extract Questions — send all QP page images in one call
       setExtractStatus("Extracting Questions...");
-      const qpBase64 = await fileToBase64(qpFile);
       const questionsRes = await fetch("/api/extract-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64: qpBase64 })
+        body: JSON.stringify({ pageImages: qpImages })
       });
-      if (!questionsRes.ok) throw new Error("Failed to extract questions");
+      if (!questionsRes.ok) {
+        const errBody = await questionsRes.json().catch(() => ({}));
+        throw new Error(errBody.error || "Failed to extract questions");
+      }
       const { questions: extractedQuestions } = await questionsRes.json();
       setQuestions(extractedQuestions);
 
-      // 2. Render Answer Sheet to Images
+      // 3. Render Answer Sheet to Images
       setExtractStatus("Rendering Answer Sheet pages...");
       const pageImages = await renderPdfToImages(asFile);
       setAnswerSheetImages(pageImages);
 
-      // 3. Extract Answers - ALL PAGES IN PARALLEL for speed
+      // 4. Extract Answers — one call per page, sent sequentially to respect rate limits
       setExtractStatus(`Extracting Answers (${pageImages.length} pages)...`);
-      const answerPromises = pageImages.map((img, i) =>
-        fetch("/api/extract-answers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: img, pageNumber: i + 1 })
-        }).then(res => {
-          if (!res.ok) throw new Error("Failed to extract answers for page " + (i + 1));
-          return res.json();
-        })
-      );
-      const answerResults = await Promise.allSettled(answerPromises);
       const allAnswers: Answer[] = [];
-      for (const result of answerResults) {
-        if (result.status === "fulfilled") {
-          allAnswers.push(...result.value.answers);
+      for (let i = 0; i < pageImages.length; i++) {
+        setExtractStatus(`Extracting Answers (page ${i + 1} of ${pageImages.length})...`);
+        try {
+          const res = await fetch("/api/extract-answers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: pageImages[i], pageNumber: i + 1 })
+          });
+          if (!res.ok) {
+            console.error(`Failed to extract answers for page ${i + 1}`);
+            continue;
+          }
+          const data = await res.json();
+          allAnswers.push(...data.answers);
+        } catch (pageErr) {
+          console.error(`Error on page ${i + 1}:`, pageErr);
         }
       }
       setAnswers(allAnswers);
 
-      // 4. Map Questions to Answers
+      // 5. Map Questions to Answers (local TypeScript logic — no AI call)
       setExtractStatus("Mapping Answers to Questions...");
       const mapRes = await fetch("/api/map-answers", {
          method: "POST",
