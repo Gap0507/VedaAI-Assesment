@@ -1,7 +1,9 @@
-import { visionRequest } from "@/lib/openrouter";
 import { NextResponse } from "next/server";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 
-export const maxDuration = 60; // Allow max 60s for Vercel edge/serverless
+export const maxDuration = 60;
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function POST(req: Request) {
   try {
@@ -39,20 +41,68 @@ export async function POST(req: Request) {
       - "order" is the sequential index starting from 1
     `;
 
-    // Prepare images - strip data URI prefix if present
-    const images = pageImages.map((img: string) => ({
-      base64: img.includes(",") ? img.split(",")[1] : img,
-      mimeType: "image/jpeg",
-    }));
+    const images = pageImages.map((img: string) => {
+      const base64 = img.includes(",") ? img.split(",")[1] : img;
+      return { base64, mimeType: "image/jpeg" };
+    });
 
-    const responseText = await visionRequest(prompt, images);
+    if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set");
+    
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3.1-flash-lite",
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            questions: {
+              type: SchemaType.ARRAY,
+              items: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  id: { type: SchemaType.STRING },
+                  number: { type: SchemaType.STRING },
+                  text: { type: SchemaType.STRING },
+                  marks: { type: SchemaType.NUMBER },
+                  order: { type: SchemaType.NUMBER },
+                },
+                required: ["id", "number", "text", "marks", "order"],
+              },
+            },
+          },
+          required: ["questions"],
+        },
+      },
+    });
 
-    // Parse JSON from the response, handling possible markdown code fences
-    let jsonStr = responseText.trim();
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+    const geminiParts = [
+      prompt,
+      ...images.map(img => ({
+        inlineData: { data: img.base64, mimeType: img.mimeType }
+      }))
+    ];
+    
+    let result;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    
+    while (attempt < MAX_RETRIES) {
+      try {
+        result = await model.generateContent(geminiParts as any);
+        break; // Success
+      } catch (error: any) {
+        if (error.status === 429 && attempt < MAX_RETRIES - 1) {
+          attempt++;
+          const waitTime = 1000 * Math.pow(2, attempt); // 2s, 4s, etc.
+          console.log(`[Rate Limit] Retrying extract-questions in ${waitTime}ms... (Attempt ${attempt})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          throw error; // Not a rate limit error, or we ran out of retries
+        }
+      }
     }
-    const data = JSON.parse(jsonStr);
+    
+    const data = JSON.parse(result!.response.text());
 
     return NextResponse.json(data);
   } catch (error: any) {

@@ -12,9 +12,11 @@ import {
 export function TopNav() {
   return (
     <div className="flex items-center h-14 mx-3 mt-3 px-2 pl-6 bg-white/75 backdrop-blur-sm rounded-2xl shrink-0">
-      {/* Left */}
       <div className="flex items-center gap-3">
-        <button className="w-10 h-10 flex items-center justify-center bg-white rounded-full hover:bg-gray-50 transition">
+        <button 
+          onClick={() => window.location.reload()}
+          className="w-10 h-10 flex items-center justify-center bg-white rounded-full hover:bg-gray-50 transition"
+        >
           <ArrowLeft size={20} className="text-[#303030]" />
         </button>
       </div>

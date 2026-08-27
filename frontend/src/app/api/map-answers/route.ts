@@ -1,143 +1,100 @@
 import { NextResponse } from "next/server";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 
 export const maxDuration = 60;
 
-interface Question {
-  id: string;
-  number: string;
-  text: string;
-  marks: number;
-  order: number;
-}
-
-interface Answer {
-  id: string;
-  text: string;
-  questionReference: string | null;
-  page: number;
-  boundingBox: { x: number; y: number; width: number; height: number };
-}
-
-interface Mapping {
-  questionId: string;
-  answerId: string;
-  confidence: number;
-  reason: string;
-  status: "mapped" | "review" | "unmatched";
-}
-
-/**
- * Normalize a question reference string for fuzzy matching.
- * Strips common prefixes like "Q", "Ans", "Answer", punctuation, and whitespace.
- * Examples: "Q11(a)" → "11a", "Ans 3" → "3", "1)" → "1"
- */
-function normalizeRef(ref: string): string {
-  return ref
-    .toLowerCase()
-    .replace(/^(ans(wer)?|q(uestion)?)\s*/i, "")  // Strip prefixes
-    .replace(/[^a-z0-9]/g, "");                     // Keep only alphanumeric
-}
-
-/**
- * Local TypeScript-based mapping engine.
- * Maps answers to questions WITHOUT any AI call.
- *
- * Strategy:
- * 1. Exact match on questionReference → question.number
- * 2. Fuzzy normalized match
- * 3. Sequential fallback for unmatched answers
- */
-function mapAnswersToQuestions(questions: Question[], answers: Answer[]): Mapping[] {
-  const mappings: Mapping[] = [];
-  const mappedQuestionIds = new Set<string>();
-  const mappedAnswerIds = new Set<string>();
-
-  // Build a lookup from normalized question number → question
-  const normalizedQMap = new Map<string, Question>();
-  for (const q of questions) {
-    normalizedQMap.set(normalizeRef(q.number), q);
-  }
-
-  // --- Pass 1: Exact / fuzzy reference match ---
-  for (const answer of answers) {
-    if (!answer.questionReference) continue;
-
-    const normalizedRef = normalizeRef(answer.questionReference);
-    const matchedQuestion = normalizedQMap.get(normalizedRef);
-
-    if (matchedQuestion && !mappedQuestionIds.has(matchedQuestion.id)) {
-      mappings.push({
-        questionId: matchedQuestion.id,
-        answerId: answer.id,
-        confidence: 0.95,
-        reason: `Matched by explicit reference "${answer.questionReference}" → Q${matchedQuestion.number}`,
-        status: "mapped",
-      });
-      mappedQuestionIds.add(matchedQuestion.id);
-      mappedAnswerIds.add(answer.id);
-    }
-  }
-
-  // --- Pass 2: Sequential fallback ---
-  // Sort remaining answers by page, then by vertical position (y coordinate)
-  const unmappedAnswers = answers
-    .filter((a) => !mappedAnswerIds.has(a.id))
-    .sort((a, b) => {
-      if (a.page !== b.page) return a.page - b.page;
-      return a.boundingBox.y - b.boundingBox.y;
-    });
-
-  // Sort remaining questions by order
-  const unmappedQuestions = questions
-    .filter((q) => !mappedQuestionIds.has(q.id))
-    .sort((a, b) => a.order - b.order);
-
-  // Map sequentially
-  for (let i = 0; i < unmappedAnswers.length; i++) {
-    const answer = unmappedAnswers[i];
-    if (i < unmappedQuestions.length) {
-      const question = unmappedQuestions[i];
-      mappings.push({
-        questionId: question.id,
-        answerId: answer.id,
-        confidence: 0.6,
-        reason: `Mapped by sequential order (answer ${i + 1} → question ${question.number})`,
-        status: "review",
-      });
-      mappedQuestionIds.add(question.id);
-      mappedAnswerIds.add(answer.id);
-    } else {
-      // More answers than questions — mark as unmatched
-      mappings.push({
-        questionId: questions[0]?.id || "unknown",
-        answerId: answer.id,
-        confidence: 0.2,
-        reason: "No matching question found — excess answer block",
-        status: "unmatched",
-      });
-    }
-  }
-
-  return mappings;
-}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function POST(req: Request) {
   try {
     const { questions, answers } = await req.json();
 
     if (!questions || !answers) {
-      return NextResponse.json(
-        { error: "Questions and answers arrays are required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing questions or answers" }, { status: 400 });
     }
 
-    // Pure local logic — no AI call needed
-    const mappings = mapAnswersToQuestions(questions, answers);
+    const prompt = `
+      You are an expert AI teacher and grading assistant.
+      I will provide you with a list of EXTRACTED QUESTIONS from an exam, and a list of EXTRACTED ANSWERS written by a student.
 
-    return NextResponse.json({ mappings });
+      Your job is to:
+      1. Semantically match which answer(s) belong to which question. (Note: A student's answer might span multiple answer blocks, so you can map an array of answer IDs to a single question).
+      2. Grade the student's answer based on the question context.
+      3. Award marks (between 0 and the maximum marks allowed for that question).
+      4. Provide short, encouraging teacher feedback (e.g., "Excellent work! You correctly identified X" or "Almost there, but you forgot to mention Y.").
+
+      Questions JSON:
+      ${JSON.stringify(questions, null, 2)}
+
+      Answers JSON (student's handwritten blocks):
+      ${JSON.stringify(answers.map((a: any) => ({ id: a.id, text: a.text, explicitReference: a.questionReference })), null, 2)}
+
+      For EVERY question in the Questions JSON, you must return a mapping object.
+      If the student did not answer the question (no relevant answer block found), return empty answerIds, 0 marks, feedback "Missing answer.", and status "unmatched".
+
+      Status rules:
+      - "mapped": Fully correct or mostly correct.
+      - "review": Partial marks, incorrect, or needs human review.
+      - "unmatched": No answer found.
+    `;
+
+    if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set");
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3.1-flash-lite",
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            mappings: {
+              type: SchemaType.ARRAY,
+              items: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  questionId: { type: SchemaType.STRING },
+                  answerIds: { 
+                    type: SchemaType.ARRAY,
+                    items: { type: SchemaType.STRING }
+                  },
+                  earnedMarks: { type: SchemaType.NUMBER },
+                  feedback: { type: SchemaType.STRING },
+                  status: { type: SchemaType.STRING, description: "Must be 'mapped', 'review', or 'unmatched'" }
+                },
+                required: ["questionId", "answerIds", "earnedMarks", "feedback", "status"]
+              }
+            }
+          },
+          required: ["mappings"]
+        }
+      }
+    });
+
+    let result;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    
+    while (attempt < MAX_RETRIES) {
+      try {
+        result = await model.generateContent(prompt);
+        break; // Success
+      } catch (error: any) {
+        if (error.status === 429 && attempt < MAX_RETRIES - 1) {
+          attempt++;
+          const waitTime = 1000 * Math.pow(2, attempt);
+          console.log(`[Rate Limit] Retrying map-answers in ${waitTime}ms... (Attempt ${attempt})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    const data = JSON.parse(result!.response.text());
+
+    return NextResponse.json(data);
   } catch (error: any) {
-    console.error("Error mapping answers:", error);
+    console.error("Error mapping and grading answers:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

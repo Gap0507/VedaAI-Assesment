@@ -24,8 +24,8 @@ export interface Answer {
 
 export interface Mapping {
   questionId: string;
-  answerId: string;
-  confidence: number;
-  reason?: string;
+  answerIds: string[];
+  earnedMarks: number;
+  feedback: string;
   status: "mapped" | "review" | "unmatched";
 }
