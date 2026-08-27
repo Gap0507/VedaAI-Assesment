@@ -2,11 +2,9 @@
 
 Welcome to the **VedaAI Assessment** platform! This application acts as a digital teaching assistant, automating the tedious process of extracting, mapping, and grading handwritten student answer sheets against question papers. 
 
-🔗 **[Watch the Video Here](https://drive.google.com/file/d/1kDW0xG
+🔗 **[Watch the Video Here](https://drive.google.com/file/d/1kDW0xGaMxI1KszPXYj-7MM4qAImELCBg/view?usp=sharing)**
 
-aMxI1KszPXYj-7MM4qAImELCBg/view?usp=sharing)**
 
----
 
 ## 🧠 The AI Orchestration Pipeline
 
