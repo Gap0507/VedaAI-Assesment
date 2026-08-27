@@ -6,6 +6,8 @@ import { useState, useRef } from "react";
 import { PDFDocument } from "pdf-lib";
 import { ExtractingView } from "@/components/ExtractingView";
 import { MappingView } from "@/components/MappingView";
+import { renderPdfToImages } from "@/utils/pdfRenderer";
+import { Question, Answer, Mapping } from "@/types";
 
 /* Each icon orbits at the same radius but starts at a different angle */
 const orbitIcons = [
@@ -20,6 +22,15 @@ const formatFileSize = (bytes: number) => {
   return (bytes / (1024 * 1024)).toFixed(1) + "MB";
 };
 
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 export default function UploadPage() {
   const [qpFile, setQpFile] = useState<File | null>(null);
   const [asFile, setAsFile] = useState<File | null>(null);
@@ -28,7 +39,15 @@ export default function UploadPage() {
   const [isQpLoading, setIsQpLoading] = useState(false);
   const [isAsLoading, setIsAsLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
   const [viewState, setViewState] = useState<"upload" | "extracting" | "mapping">("upload");
+  const [extractStatus, setExtractStatus] = useState("Preparing to extract...");
+
+  // Output data states
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [answerSheetImages, setAnswerSheetImages] = useState<string[]>([]);
 
   const qpInputRef = useRef<HTMLInputElement>(null);
   const asInputRef = useRef<HTMLInputElement>(null);
@@ -102,19 +121,77 @@ export default function UploadPage() {
 
   const isBothUploaded = qpFile !== null && asFile !== null;
 
-  const handleStartMapping = () => {
+  const handleStartMapping = async () => {
+    if (!qpFile || !asFile) return;
+    
     setViewState("extracting");
-    setTimeout(() => {
+    
+    try {
+      // 1. Extract Questions
+      setExtractStatus("Extracting Questions...");
+      const qpBase64 = await fileToBase64(qpFile);
+      const questionsRes = await fetch("/api/extract-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdfBase64: qpBase64 })
+      });
+      if (!questionsRes.ok) throw new Error("Failed to extract questions");
+      const { questions: extractedQuestions } = await questionsRes.json();
+      setQuestions(extractedQuestions);
+
+      // 2. Render Answer Sheet to Images
+      setExtractStatus("Rendering Answer Sheet pages...");
+      const pageImages = await renderPdfToImages(asFile);
+      setAnswerSheetImages(pageImages);
+
+      // 3. Extract Answers - ALL PAGES IN PARALLEL for speed
+      setExtractStatus(`Extracting Answers (${pageImages.length} pages)...`);
+      const answerPromises = pageImages.map((img, i) =>
+        fetch("/api/extract-answers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: img, pageNumber: i + 1 })
+        }).then(res => {
+          if (!res.ok) throw new Error("Failed to extract answers for page " + (i + 1));
+          return res.json();
+        })
+      );
+      const answerResults = await Promise.allSettled(answerPromises);
+      const allAnswers: Answer[] = [];
+      for (const result of answerResults) {
+        if (result.status === "fulfilled") {
+          allAnswers.push(...result.value.answers);
+        }
+      }
+      setAnswers(allAnswers);
+
+      // 4. Map Questions to Answers
+      setExtractStatus("Mapping Answers to Questions...");
+      const mapRes = await fetch("/api/map-answers", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ questions: extractedQuestions, answers: allAnswers })
+      });
+      if (!mapRes.ok) throw new Error("Failed to map answers");
+      const { mappings: extractedMappings } = await mapRes.json();
+      setMappings(extractedMappings);
+      
+      // All done!
       setViewState("mapping");
-    }, 3500); // Simulate extraction delay
+
+    } catch (error: any) {
+      console.error(error);
+      showToast(error.message || "An error occurred during processing");
+      setViewState("upload"); // Revert on error
+    }
   };
 
   if (viewState === "extracting") {
-    return <ExtractingView />;
+    return <ExtractingView status={extractStatus} />;
   }
 
   if (viewState === "mapping") {
-    return <MappingView />;
+    return <MappingView questions={questions} answers={answers} mappings={mappings} images={answerSheetImages} />;
   }
 
   return (
