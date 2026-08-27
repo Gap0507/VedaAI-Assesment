@@ -201,16 +201,19 @@ export default function UploadPage() {
   return (
     <div className="flex flex-col items-center justify-center h-full py-4 px-4 relative">
       {/* ── Title ── */}
-      <div className="flex flex-col items-center gap-1 mb-2">
-        <div className="flex items-center gap-3">
-          <h1 className="text-[40px] font-bold leading-[120%] tracking-[-0.04em] text-[#2B2B2B]">
-            Upload
+      <div className="flex flex-col items-center gap-1 mb-2 mt-4 md:mt-0">
+        <div className="flex flex-col md:flex-row items-center gap-1 md:gap-3 text-center">
+          <h1 className="text-[28px] md:text-[40px] font-bold leading-[120%] tracking-[-0.04em] text-[#2B2B2B]">
+            Upload <span className="md:hidden inline underline decoration-[#FF5623]">Question Paper</span>
           </h1>
-          <span className="text-[40px] font-bold leading-[120%] tracking-[-0.04em] text-[#FF5623] bg-[rgba(255,147,80,0.15)] px-2 py-1 rounded-lg">
+          <span className="hidden md:inline text-[28px] md:text-[40px] font-bold leading-[120%] tracking-[-0.04em] text-[#FF5623] bg-[rgba(255,147,80,0.15)] px-2 py-1 rounded-lg">
             Question Paper &amp; Answer Sheets
           </span>
+          <span className="md:hidden text-[28px] font-bold leading-[120%] tracking-[-0.04em] text-[#303030]">
+            &amp; Answer Sheets
+          </span>
         </div>
-        <p className="text-[20px] font-normal leading-[140%] tracking-[-0.04em] text-[#303030]">
+        <p className="hidden md:block text-[20px] font-normal leading-[140%] tracking-[-0.04em] text-[#303030]">
           Upload both files to get started
         </p>
       </div>
@@ -275,7 +278,7 @@ export default function UploadPage() {
 
       {/* ── Upload dropzones ── */}
       <div className="bg-[rgba(255,255,255,0.5)] rounded-3xl p-3 max-w-[789px] w-full mb-3">
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-4">
           
           {/* Question Paper Dropzone */}
           {!qpFile ? (

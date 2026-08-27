@@ -14,6 +14,7 @@ export function MappingView({ questions, answers, mappings, images, aiReport }: 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<number>(80);
   const [showReport, setShowReport] = useState<boolean>(false);
+  const [mobileTab, setMobileTab] = useState<'questions' | 'answers'>('questions');
 
   // Derive which answers are mapped to the currently expanded question
   const activeMappings = mappings.filter((m) => m.questionId === expandedId);
@@ -28,6 +29,8 @@ export function MappingView({ questions, answers, mappings, images, aiReport }: 
       const qMappings = mappings.filter((m) => m.questionId === qId);
       const firstAnswer = answers.find((a) => qMappings.some((m) => m.answerIds?.includes(a.id)));
       if (firstAnswer) {
+        // Automatically switch to answers tab on mobile when a question is clicked
+        setMobileTab('answers');
         setTimeout(() => {
           const el = document.getElementById(`box-${firstAnswer.id}`);
           if (el) {
@@ -44,9 +47,26 @@ export function MappingView({ questions, answers, mappings, images, aiReport }: 
   const percentage = totalMarks > 0 ? ((earnedMarks / totalMarks) * 100).toFixed(1) : 0;
 
   return (
-    <div className="flex h-full w-full gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-3 px-3 pb-3 relative">
+    <div className="flex flex-col md:flex-row h-full w-full gap-2 md:gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-3 px-3 pb-3 relative">
+      
+      {/* Mobile Tabs */}
+      <div className="md:hidden flex w-full bg-[#E9E5E5] rounded-xl p-1 shrink-0">
+        <button 
+          onClick={() => setMobileTab('questions')}
+          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mobileTab === 'questions' ? 'bg-[#303030] shadow text-white' : 'text-[#5E5E5E]'}`}
+        >
+          Questions
+        </button>
+        <button 
+          onClick={() => setMobileTab('answers')}
+          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mobileTab === 'answers' ? 'bg-[#303030] shadow text-white' : 'text-[#5E5E5E]'}`}
+        >
+          Answer Sheet
+        </button>
+      </div>
+
       {/* ── Left Column: Questions ── */}
-      <div className="w-[45%] flex flex-col h-full bg-white/50 backdrop-blur-sm rounded-[24px] p-4 border border-white/40 shadow-sm">
+      <div className={`w-full md:w-[45%] flex-col h-full bg-white/50 backdrop-blur-sm md:rounded-[24px] rounded-xl p-2 md:p-4 border border-white/40 shadow-sm ${mobileTab === 'questions' ? 'flex' : 'hidden md:flex'}`}>
         <div className="flex items-center justify-between mb-4 px-2">
           <h2 className="font-bold text-[16px] text-[#2B2B2B] tracking-[-0.04em]">
             Extracted Questions <span className="font-normal text-[#5E5E5E]">(from question paper)</span>
@@ -132,10 +152,11 @@ export function MappingView({ questions, answers, mappings, images, aiReport }: 
         </div>
       </div>
 
-      {/* ── Right Column: Answer Sheet Spatial View ── */}
-      <div className="flex-1 bg-[#EAEAEA] border-[2px] border-dashed border-[#CECECE] rounded-[24px] flex flex-col relative overflow-hidden shadow-inner">
-        {/* Top Controls */}
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
+      {/* ── Right Column: Document ── */}
+      <div className={`w-full md:w-[55%] h-full flex-col items-center bg-[#F6F6F6] md:rounded-[24px] rounded-xl border border-[#EAEAEA] relative overflow-hidden shadow-inner ${mobileTab === 'answers' ? 'flex' : 'hidden md:flex'}`}>
+        
+        {/* Controls Overlay */}
+        <div className="absolute top-4 inset-x-0 z-20 px-6 flex justify-between items-center pointer-events-none">
           <div className="bg-[#303030] text-white text-[13px] font-semibold px-4 py-2 rounded-lg shadow-md flex items-center gap-2 pointer-events-auto">
             Answer Sheet
             <span className="text-gray-400 font-normal ml-2">{images.length} Pages</span>
