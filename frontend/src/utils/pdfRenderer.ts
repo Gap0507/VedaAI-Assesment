@@ -44,7 +44,7 @@ export async function renderPdfToImages(file: File): Promise<string[]> {
       viewport: viewport,
     };
     
-    await page.render(renderContext).promise;
+    await page.render(renderContext as any).promise;
     
     // Convert canvas to JPEG base64 (to save payload size compared to PNG)
     const base64Image = canvas.toDataURL("image/jpeg", 0.9);
