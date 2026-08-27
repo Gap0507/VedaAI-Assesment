@@ -27,5 +27,11 @@ export interface Mapping {
   answerIds: string[];
   earnedMarks: number;
   feedback: string;
+  errorType: string;
   status: "mapped" | "review" | "unmatched";
+}
+
+export interface AIReport {
+  strengths: string;
+  improvements: string;
 }

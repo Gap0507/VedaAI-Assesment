@@ -11,8 +11,11 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "VedaAI Assessment",
+  title: "VedaAI",
   description: "AI-powered assessment extraction and answer mapping for teachers",
+  icons: {
+    icon: "/vedaai_logo.avif?v=2",
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

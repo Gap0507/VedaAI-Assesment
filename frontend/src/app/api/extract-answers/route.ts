@@ -105,10 +105,10 @@ export async function POST(req: Request) {
         ]);
         break; // Success
       } catch (error: any) {
-        if (error.status === 429 && attempt < MAX_RETRIES - 1) {
+        if ((error.status === 429 || error.status === 503) && attempt < MAX_RETRIES - 1) {
           attempt++;
           const waitTime = 1000 * Math.pow(2, attempt); // 2s, 4s, etc.
-          console.log(`[Rate Limit] Retrying extract-answers for page ${pageNumber} in ${waitTime}ms... (Attempt ${attempt})`);
+          console.log(`[Rate Limit / 503] Retrying extract-answers for page ${pageNumber} in ${waitTime}ms... (Attempt ${attempt})`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         } else {
           throw error; // Not a rate limit error, or we ran out of retries

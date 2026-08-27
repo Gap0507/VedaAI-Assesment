@@ -41,6 +41,7 @@ export default function UploadPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [aiReport, setAiReport] = useState<any>(null);
   const [answerSheetImages, setAnswerSheetImages] = useState<string[]>([]);
 
   const qpInputRef = useRef<HTMLInputElement>(null);
@@ -175,8 +176,9 @@ export default function UploadPage() {
          body: JSON.stringify({ questions: extractedQuestions, answers: allAnswers })
       });
       if (!mapRes.ok) throw new Error("Failed to map answers");
-      const { mappings: extractedMappings } = await mapRes.json();
+      const { mappings: extractedMappings, strengths, improvements } = await mapRes.json();
       setMappings(extractedMappings);
+      setAiReport({ strengths, improvements });
       
       // All done!
       setViewState("mapping");
@@ -193,7 +195,7 @@ export default function UploadPage() {
   }
 
   if (viewState === "mapping") {
-    return <MappingView questions={questions} answers={answers} mappings={mappings} images={answerSheetImages} />;
+    return <MappingView questions={questions} answers={answers} mappings={mappings} images={answerSheetImages} aiReport={aiReport} />;
   }
 
   return (

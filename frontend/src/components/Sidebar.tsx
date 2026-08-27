@@ -29,13 +29,7 @@ export function Sidebar() {
           {/* Logo row */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-[#303030] rounded-[10px] flex items-center justify-center overflow-hidden relative">
-                {/* Simple V logo like Figma */}
-                <svg width="24" height="20" viewBox="0 0 24 20" fill="none">
-                  <path d="M0 0H10V20H0V0Z" fill="white" />
-                  <path d="M14 0H24V20H14V0Z" fill="white" />
-                </svg>
-              </div>
+              <img src="/vedaai_logo.avif" alt="VedaAI Logo" className="h-10 w-auto object-contain" />
               <span className="font-bold text-[28px] leading-5 tracking-[-0.06em] text-[#303030]">
                 VedaAI
               </span>
@@ -59,11 +53,10 @@ export function Sidebar() {
               <Link
                 key={item.label}
                 href={item.href}
-                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors ${
-                  item.active
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors ${item.active
                     ? "bg-[#F0F0F0] text-[#303030] font-medium"
                     : "text-[rgba(94,94,94,0.8)] hover:bg-[#F0F0F0]/50"
-                }`}
+                  }`}
               >
                 <item.icon size={20} />
                 <span className="text-[16px] leading-[22px] tracking-[-0.04em]">

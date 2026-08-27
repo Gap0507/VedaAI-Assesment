@@ -1,18 +1,19 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, X, FileText } from "lucide-react";
 import { useState } from "react";
-import Image from "next/image";
-import { Question, Answer, Mapping } from "@/types";
+import { Question, Answer, Mapping, AIReport } from "@/types";
 
 interface MappingViewProps {
   questions: Question[];
   answers: Answer[];
   mappings: Mapping[];
-  images: string[]; // Base64 images for each page
+  images: string[];
+  aiReport?: AIReport;
 }
 
-export function MappingView({ questions, answers, mappings, images }: MappingViewProps) {
+export function MappingView({ questions, answers, mappings, images, aiReport }: MappingViewProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<number>(80);
+  const [showReport, setShowReport] = useState<boolean>(false);
 
   // Derive which answers are mapped to the currently expanded question
   const activeMappings = mappings.filter((m) => m.questionId === expandedId);
@@ -27,7 +28,6 @@ export function MappingView({ questions, answers, mappings, images }: MappingVie
       const qMappings = mappings.filter((m) => m.questionId === qId);
       const firstAnswer = answers.find((a) => qMappings.some((m) => m.answerIds?.includes(a.id)));
       if (firstAnswer) {
-        // Wait for React to render the boxes, then scroll to it
         setTimeout(() => {
           const el = document.getElementById(`box-${firstAnswer.id}`);
           if (el) {
@@ -38,14 +38,27 @@ export function MappingView({ questions, answers, mappings, images }: MappingVie
     }
   };
 
+  // Calculate totals for report
+  const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
+  const earnedMarks = mappings.reduce((acc, m) => acc + (m.earnedMarks || 0), 0);
+  const percentage = totalMarks > 0 ? ((earnedMarks / totalMarks) * 100).toFixed(1) : 0;
+
   return (
-    <div className="flex h-full w-full gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-3 px-3 pb-3">
+    <div className="flex h-full w-full gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-3 px-3 pb-3 relative">
       {/* ── Left Column: Questions ── */}
       <div className="w-[45%] flex flex-col h-full bg-white/50 backdrop-blur-sm rounded-[24px] p-4 border border-white/40 shadow-sm">
         <div className="flex items-center justify-between mb-4 px-2">
           <h2 className="font-bold text-[16px] text-[#2B2B2B] tracking-[-0.04em]">
             Extracted Questions <span className="font-normal text-[#5E5E5E]">(from question paper)</span>
           </h2>
+          {aiReport && (
+            <button 
+              onClick={() => setShowReport(true)}
+              className="bg-[#1C2024] text-white px-4 py-1.5 rounded-full text-[13px] font-semibold shadow-sm hover:bg-black transition-colors flex items-center gap-2"
+            >
+              <FileText size={14} /> View AI Report
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-3 custom-scrollbar">
@@ -149,42 +162,25 @@ export function MappingView({ questions, answers, mappings, images }: MappingVie
                   className="relative shadow-xl bg-white flex-shrink-0 transition-all duration-300 ease-in-out overflow-hidden"
                   style={{ width: `${zoom}%`, minWidth: '300px' }}
                 >
-                  {/* Page indicator tag */}
                   <div className="absolute -left-10 top-0 bg-[#303030] text-white text-xs px-2 py-1 rounded shadow-md z-10">
                     Pg {pageNum}
                   </div>
-
-                  {/* The underlying page image */}
-                  <img
-                    src={imgSrc}
-                    alt={`Answer Sheet Page ${pageNum}`}
-                    className="block w-full h-auto pointer-events-none"
-                  />
-
-                  {/* Highlight Overlays for this specific page */}
-                  {activeAnswers
-                    .filter((ans) => ans.page === pageNum)
-                    .map((ans) => {
-                      // Clamp coordinates to 0-1 in case the AI hallucinated absolute pixel values
+                  <img src={imgSrc} alt={`Answer Sheet Page ${pageNum}`} className="block w-full h-auto pointer-events-none" />
+                  
+                  {activeAnswers.filter((ans) => ans.page === pageNum).map((ans) => {
                       const x = Math.min(1, Math.max(0, ans.boundingBox.x > 1 ? ans.boundingBox.x / 1000 : ans.boundingBox.x));
                       const y = Math.min(1, Math.max(0, ans.boundingBox.y > 1 ? ans.boundingBox.y / 1000 : ans.boundingBox.y));
                       const width = Math.min(1, Math.max(0, ans.boundingBox.width > 1 ? ans.boundingBox.width / 1000 : ans.boundingBox.width));
                       const height = Math.min(1, Math.max(0, ans.boundingBox.height > 1 ? ans.boundingBox.height / 1000 : ans.boundingBox.height));
-
                       return (
                         <div
                           key={ans.id}
                           id={`box-${ans.id}`}
                           className="absolute border-4 border-[#FF5623] bg-[#FF5623]/20 animate-in fade-in duration-500 shadow-[0_0_15px_rgba(255,86,35,0.4)]"
-                          style={{
-                            left: `${x * 100}%`,
-                            top: `${y * 100}%`,
-                            width: `${width * 100}%`,
-                            height: `${height * 100}%`,
-                          }}
+                          style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${width * 100}%`, height: `${height * 100}%` }}
                         />
                       );
-                    })}
+                  })}
                 </div>
               );
             })
@@ -195,6 +191,92 @@ export function MappingView({ questions, answers, mappings, images }: MappingVie
           )}
         </div>
       </div>
+
+      {/* ── AI Report Modal ── */}
+      {showReport && aiReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#FAF9F6] w-full max-w-4xl rounded-[24px] shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="p-6 pb-4 border-b border-[#EAEAEA] flex justify-between items-start bg-white">
+              <div>
+                <h2 className="text-2xl font-bold text-[#1C2024]">Vikram</h2>
+                <p className="text-[#5E5E5E] text-sm mt-1">Roll 37 • Class 9 • Mathematics</p>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="text-right">
+                  <div className="text-3xl font-black text-[#1C2024] tracking-tight">{earnedMarks}<span className="text-[#5E5E5E] text-xl font-medium">/{totalMarks}</span></div>
+                  <div className="text-[#5E5E5E] text-sm font-semibold">{percentage}%</div>
+                </div>
+                <button onClick={() => setShowReport(false)} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition-colors text-gray-500 hover:text-black">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 flex-1 flex flex-col gap-6 min-h-0">
+              
+              {/* Strengths & Improvements */}
+              <div className="grid grid-cols-2 gap-4 shrink-0">
+                <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-xl p-5">
+                  <h4 className="text-[#166534] text-xs font-bold tracking-wider mb-2 flex items-center gap-2">✓ STRENGTHS</h4>
+                  <p className="text-[#15803D] text-[14px] leading-relaxed font-medium">{aiReport.strengths}</p>
+                </div>
+                <div className="bg-[#FFFBEB] border border-[#FEF08A] rounded-xl p-5">
+                  <h4 className="text-[#92400E] text-xs font-bold tracking-wider mb-2 flex items-center gap-2">△ AREAS FOR IMPROVEMENT</h4>
+                  <p className="text-[#B45309] text-[14px] leading-relaxed font-medium">{aiReport.improvements}</p>
+                </div>
+              </div>
+
+              {/* Data Table */}
+              <div className="rounded-xl border border-[#EAEAEA] bg-white shadow-sm flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="overflow-y-auto custom-scrollbar flex-1">
+                  <table className="w-full text-left border-collapse relative">
+                    <thead className="sticky top-0 z-10 shadow-sm">
+                      <tr className="bg-[#0F172A] text-white">
+                        <th className="py-3 px-4 text-xs font-bold tracking-wider uppercase">Q</th>
+                        <th className="py-3 px-4 text-xs font-bold tracking-wider uppercase w-24">Marks</th>
+                        <th className="py-3 px-4 text-xs font-bold tracking-wider uppercase w-32">Error Type</th>
+                        <th className="py-3 px-4 text-xs font-bold tracking-wider uppercase">What the AI Found</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EAEAEA]">
+                    {questions.map((q) => {
+                      const qMap = mappings.find(m => m.questionId === q.id);
+                      const errType = qMap?.errorType || "Unmatched";
+                      
+                      let errPillColor = "bg-gray-100 text-gray-700 border-gray-200";
+                      if (errType.toLowerCase().includes("no error") || errType.toLowerCase().includes("correct")) errPillColor = "bg-green-50 text-green-700 border-green-200";
+                      else if (errType.toLowerCase().includes("not attempted") || errType.toLowerCase().includes("missing")) errPillColor = "bg-gray-100 text-gray-500 border-gray-200";
+                      else if (errType.toLowerCase().includes("incomplete") || errType.toLowerCase().includes("partial")) errPillColor = "bg-yellow-50 text-yellow-700 border-yellow-200";
+                      else errPillColor = "bg-red-50 text-red-700 border-red-200";
+
+                      return (
+                        <tr key={q.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-4 px-4 text-sm font-bold text-[#1C2024] align-top whitespace-nowrap">{q.number}</td>
+                          <td className="py-4 px-4 text-sm text-[#5E5E5E] align-top whitespace-nowrap">
+                            {qMap?.earnedMarks || 0}/{q.marks}
+                          </td>
+                          <td className="py-4 px-4 align-top whitespace-nowrap">
+                            <span className={`inline-block px-2.5 py-1 text-[11px] font-bold rounded-md border ${errPillColor}`}>
+                              {errType}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-[13px] text-[#303030] leading-relaxed align-top">
+                            {qMap?.feedback || "Not attempted."}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -30,12 +30,21 @@ export async function POST(req: Request) {
       ${JSON.stringify(answers.map((a: any) => ({ id: a.id, text: a.text, explicitReference: a.questionReference })), null, 2)}
 
       For EVERY question in the Questions JSON, you must return a mapping object.
-      If the student did not answer the question (no relevant answer block found), return empty answerIds, 0 marks, feedback "Missing answer.", and status "unmatched".
+      If the student did not answer the question (no relevant answer block found), return empty answerIds, 0 marks, feedback "Not attempted.", errorType "Not attempted", and status "unmatched".
 
       Status rules:
       - "mapped": Fully correct or mostly correct.
       - "review": Partial marks, incorrect, or needs human review.
       - "unmatched": No answer found.
+      
+      Error Types (examples):
+      - "No error" (if fully correct)
+      - "Not attempted" (if missing)
+      - "Incomplete" (if partially answered)
+      - "Calculation Error" (if math is wrong)
+      - "Conceptual Error" (if fundamentally wrong)
+      
+      Additionally, provide a brief 'strengths' string and 'improvements' string summarizing the student's overall performance.
     `;
 
     if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set");
@@ -47,6 +56,8 @@ export async function POST(req: Request) {
         responseSchema: {
           type: SchemaType.OBJECT,
           properties: {
+            strengths: { type: SchemaType.STRING, description: "Overall strengths of the student" },
+            improvements: { type: SchemaType.STRING, description: "Areas for improvement" },
             mappings: {
               type: SchemaType.ARRAY,
               items: {
@@ -59,13 +70,14 @@ export async function POST(req: Request) {
                   },
                   earnedMarks: { type: SchemaType.NUMBER },
                   feedback: { type: SchemaType.STRING },
+                  errorType: { type: SchemaType.STRING, description: "E.g., No error, Not attempted, Incomplete" },
                   status: { type: SchemaType.STRING, description: "Must be 'mapped', 'review', or 'unmatched'" }
                 },
-                required: ["questionId", "answerIds", "earnedMarks", "feedback", "status"]
+                required: ["questionId", "answerIds", "earnedMarks", "feedback", "errorType", "status"]
               }
             }
           },
-          required: ["mappings"]
+          required: ["strengths", "improvements", "mappings"]
         }
       }
     });
@@ -79,10 +91,10 @@ export async function POST(req: Request) {
         result = await model.generateContent(prompt);
         break; // Success
       } catch (error: any) {
-        if (error.status === 429 && attempt < MAX_RETRIES - 1) {
+        if ((error.status === 429 || error.status === 503) && attempt < MAX_RETRIES - 1) {
           attempt++;
           const waitTime = 1000 * Math.pow(2, attempt);
-          console.log(`[Rate Limit] Retrying map-answers in ${waitTime}ms... (Attempt ${attempt})`);
+          console.log(`[Rate Limit / 503] Retrying map-answers in ${waitTime}ms... (Attempt ${attempt})`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         } else {
           throw error;
